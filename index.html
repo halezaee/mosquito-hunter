@@ -10,6 +10,8 @@
   #bg{position:fixed;inset:0;width:100vw;height:100vh;object-fit:cover;z-index:0;display:none;background:#000}
   #c{position:fixed;inset:0;width:100%;height:100%;z-index:1;background:transparent;image-rendering:pixelated;touch-action:none}
   #sat{position:fixed;top:0;left:0;width:1px;height:env(safe-area-inset-top,0px);visibility:hidden;pointer-events:none}
+  #sab{position:fixed;bottom:0;left:0;width:1px;height:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none}
+  #hap{position:fixed;left:-100px;top:-100px;opacity:0;pointer-events:none}
   .scr{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:20px;box-sizing:border-box;background:rgba(5,10,40,.85);color:#fff;text-align:center;z-index:5}
   .scr h1{font-size:40px;line-height:1.1;margin:0;letter-spacing:4px;color:#ffe14d;text-shadow:4px 4px 0 #c0182b}
   .scr p{margin:0;font-size:16px;font-weight:bold;max-width:320px}
@@ -29,7 +31,7 @@
 <body>
 <video id="bg" playsinline muted autoplay></video>
 <canvas id="c"></canvas>
-<div id="sat"></div>
+<div id="sat"></div><div id="sab"></div><label id="hap"><input type="checkbox" switch id="hapIn"></label>
 <div id="ctrl"><span style="width:74px"></span><button id="fire">FIRE</button><button id="step">STEP ▲</button></div>
 <div class="scr" id="start">
   <h1>MOSQUITO<br>HUNTER</h1>
@@ -48,11 +50,13 @@
 const $=id=>document.getElementById(id);
 const cv=$("c"),ctx=cv.getContext("2d"),video=$("bg");
 const FULL_URL="https://halezaee.github.io/mosquito-hunter/";
-let W=0,H=0,dpr=1,F=300,TOP=30;
+let W=0,H=0,dpr=1,F=300,TOP=30,BOT=0,BARY=0;
+// haptic: Android uses vibrate, iPhone (iOS 18+) uses the switch-toggle haptic trick
+function haptic(){try{if(navigator.vibrate&&navigator.vibrate(40))return}catch(e){}try{$("hap").click()}catch(e){}}
 const D=Math.PI/180,wrap=a=>((a%360)+540)%360-180,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function resize(){dpr=Math.min(2,window.devicePixelRatio||1);W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;
   ctx.setTransform(dpr,0,0,dpr,0,0);ctx.imageSmoothingEnabled=false;
-  F=(Math.max(W,H)/2)/Math.tan(32*D);TOP=($("sat").offsetHeight||0)+30}
+  F=(Math.max(W,H)/2)/Math.tan(32*D);TOP=($("sat").offsetHeight||0)+30;BOT=$("sab").offsetHeight||0;BARY=H-BOT-24-100-52}
 addEventListener("resize",resize);resize();
 
 let inFrame=false;try{inFrame=window.self!==window.top}catch(e){inFrame=true}
@@ -103,7 +107,7 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden&&camOK)vid
 let mosq=[],parts=[],score=0,level=1,timeLeft=60,running=false,last=0,flash=0,msg="",msgT=0;
 // dangerous mosquitoes: 3 per level, one at a time
 let dang=[],dSp=0,dKill=0,dNext=0,dRush=false,floats=[],bitT=0;
-const killTime=()=>Math.max(3,11-level),D0=4,dEnd=()=>9/(0.46*W/16);
+const killTime=()=>Math.max(5,16-level),D0=4,dEnd=()=>9/(0.46*W/16);
 function spawnDanger(){dSp++;{const y0=wrap(yaw+Math.random()*360),p0=-10+Math.random()*35;dang.push({dg:1,yaw:y0,pitch:p0,bY:y0,bP:p0,ox:0,oy:0,zd:Math.random()<0.5?1:-1,zv:(Math.random()-0.5)*1.2,zt:0.2+Math.random()*1.0,dist:D0,age:0,ph:Math.random()*10})}
   if(navigator.vibrate)navigator.vibrate(120);msg="DANGER!";msgT=1}
 function checkClear(){
@@ -157,7 +161,7 @@ function fire(){
   if(!running)return;flash=0.08;let best=null,bd=1e9,bs=null;
   for(const m of mosq.concat(dang)){const s=project(m);if(!s.vis)continue;const d=Math.hypot(s.sx-W/2,s.sy-H/2);
     if(d<9*s.p+14&&d<bd){bd=d;best=m;bs=s}}
-  if(best){splat(bs.sx,bs.sy,bs.p);if(navigator.vibrate)navigator.vibrate(40);
+  if(best){splat(bs.sx,bs.sy,bs.p);haptic();
     if(best.dg){dang.splice(dang.indexOf(best),1);dKill++;const pts=level<8?3:5;score+=pts;floats.push({x:bs.sx,y:bs.sy-20,l:1.2,t:"+"+pts});dNext=dRush?2+Math.random()*2:4+Math.random()*6}
     else{mosq.splice(mosq.indexOf(best),1);score+=10}
     checkClear()}
@@ -182,7 +186,7 @@ function drawFallbackBG(){
     if(s.vis)ctx.fillRect(s.sx|0,s.sy|0,i%3?2:3,i%3?2:3)}
 }
 function drawRadar(){
-  const R=44,cx=W-R-14,cy=TOP+30+R,hf=Math.atan((W/2)/F);
+  const R=44,cx=W-R-14,cy=TOP+R,hf=Math.atan((W/2)/F);
   ctx.fillStyle="rgba(0,20,0,.55)";ctx.beginPath();ctx.arc(cx,cy,R,0,6.283);ctx.fill();
   ctx.strokeStyle="#7f7";ctx.lineWidth=2;ctx.stroke();
   ctx.fillStyle="rgba(120,255,120,.18)";ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,R,-Math.PI/2-hf,-Math.PI/2+hf);ctx.closePath();ctx.fill();
@@ -192,9 +196,23 @@ function drawRadar(){
   for(const m of dang){const a=wrap(m.yaw-yaw)*D,r=R*clamp(m.dist/4.6,0.1,0.95),x=Math.round(cx+Math.sin(a)*r),y=Math.round(cy-Math.cos(a)*r);
     ctx.fillStyle=(performance.now()/150|0)%2?"#fff":"#000";ctx.fillRect(x-5,y-5,10,10);ctx.fillStyle="#ff1020";ctx.fillRect(x-4,y-4,8,8)}
 }
+// bottom info bar: one long pixel box, a different colour for each info
+function drawHUD(t){
+  const m=8,x0=m,w=W-2*m,h=48,y=BARY|0;
+  const dl=dang.length?Math.ceil(Math.max(0,killTime()-dang[0].age)):0,blink=(t*4|0)%2;
+  const cells=[["SCORE",""+score,"#e8a400"],["LEVEL",""+level,"#1f8f3a"],["TIME",Math.ceil(timeLeft)+"s",timeLeft<10&&blink?"#d01828":"#2266cc"],
+    ["LEFT",""+mosq.length,"#7a3fc0"],dang.length?["DANGER","!"+dl+"s",blink?"#ff2030":"#8a0010"]:["DANGER",dKill+"/3","#c0182b"]];
+  ctx.fillStyle="#000";ctx.fillRect(x0-3,y-3,w+6,h+6);ctx.fillStyle="#fff";ctx.fillRect(x0-1,y-1,w+2,h+2);
+  const cw=w/cells.length;
+  cells.forEach((c,i)=>{const cx=Math.round(x0+i*cw),nx=Math.round(x0+(i+1)*cw);
+    ctx.fillStyle=c[2];ctx.fillRect(cx,y,nx-cx-(i<cells.length-1?2:0),h);
+    ctx.fillStyle="rgba(255,255,255,.18)";ctx.fillRect(cx,y,nx-cx-(i<cells.length-1?2:0),4);
+    const mid=(cx+nx)/2;pixText(c[0],mid,y+12,Math.max(9,Math.min(11,cw/6|0)),"#fff");
+    pixText(c[1],mid,y+32,Math.max(13,Math.min(20,cw/4|0)),"#fff")});
+}
 function drawArrow(s,dg){
   let dx=s.x,dy=-s.u;if(Math.hypot(dx,dy)<1e-3){dx=1;dy=0}
-  const ang=Math.atan2(dy,dx),m=26,x0=m,x1=W-m,y0=TOP+40,y1=H-150,cx=W/2,cy=H/2;
+  const ang=Math.atan2(dy,dx),m=26,x0=m,x1=W-m,y0=TOP+40,y1=BARY-24,cx=W/2,cy=H/2;
   const c=Math.cos(ang),sn=Math.sin(ang);
   const t=Math.min(c>0?(x1-cx)/c:c<0?(x0-cx)/c:1e9,sn>0?(y1-cy)/sn:sn<0?(y0-cy)/sn:1e9);
   ctx.save();ctx.translate(cx+c*t,cy+sn*t);ctx.rotate(ang);if(dg)ctx.scale(1.4,1.4);ctx.fillStyle=dg?"#ff2030":"#ffe14d";ctx.strokeStyle="#000";ctx.lineWidth=2;
@@ -240,13 +258,8 @@ function loop(now){
     ctx.fillRect(cx-18,cy-2,12,4);ctx.fillRect(cx+6,cy-2,12,4);ctx.fillRect(cx-2,cy-18,4,12);ctx.fillRect(cx-2,cy+6,4,12);
     ctx.fillStyle="#e01020";ctx.fillRect(cx-2,cy-2,4,4);
     if(flash>0){flash-=dt;ctx.fillStyle="rgba(255,255,200,.15)";ctx.fillRect(0,0,W,H)}
-    pixText("SCORE "+score,16,TOP,20,"#fff","left");
-    pixText("LV "+level,W/2,TOP,20,"#ffe14d");
-    pixText(Math.ceil(timeLeft)+"s",W-16,TOP,20,timeLeft<10?"#ff4040":"#fff","right");
-    pixText("LEFT "+mosq.length,W/2,TOP+28,14,"#cfe");
-    pixText("DANGER "+dKill+"/3",W/2,TOP+48,14,"#ff6070");
-    if(dang.length)pixText("! "+Math.ceil(Math.max(0,killTime()-dang[0].age))+"s",W/2,TOP+72,20,"#ff2030");
-    if(dragMode)pixText("NO GYRO: DRAG TO LOOK",W/2,H-150,13,"#ffe14d");
+    drawHUD(t);
+    if(dragMode)pixText("NO GYRO: DRAG TO LOOK",W/2,BARY-16,13,"#ffe14d");
     drawRadar();
     if(msgT>0){msgT-=dt;pixText(msg,W/2,H/2-70,msg==="STEP"?24:36,msg==="SPLAT!"||msg==="DANGER!"?"#ff2030":"#ffe14d")}
   }
