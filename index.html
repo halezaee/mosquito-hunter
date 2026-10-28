@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>Mosquito Hunter</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#000;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;font-family:"Courier New",monospace}
+  #bg{position:fixed;inset:0;width:100vw;height:100vh;object-fit:cover;z-index:0;display:none;background:#000}
+  #c{position:fixed;inset:0;width:100%;height:100%;z-index:1;background:transparent;image-rendering:pixelated;touch-action:none}
+  #sat{position:fixed;top:0;left:0;width:1px;height:env(safe-area-inset-top,0px);visibility:hidden;pointer-events:none}
+  .scr{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:20px;box-sizing:border-box;background:rgba(5,10,40,.85);color:#fff;text-align:center;z-index:5}
+  .scr h1{font-size:40px;line-height:1.1;margin:0;letter-spacing:4px;color:#ffe14d;text-shadow:4px 4px 0 #c0182b}
+  .scr p{margin:0;font-size:16px;font-weight:bold;max-width:320px}
+  .scr .st{font-size:13px;color:#cfe;min-height:16px}
+  .scr .nt{font-size:13px;color:#ffe14d}
+  .pbtn{font:bold 22px "Courier New",monospace;color:#fff;background:#c0182b;border:4px solid #fff;box-shadow:6px 6px 0 #000;padding:14px 28px;letter-spacing:2px;touch-action:manipulation;text-decoration:none}
+  .pbtn:active{transform:translate(4px,4px);box-shadow:2px 2px 0 #000}
+  .pbtn.alt{background:#1a6b2e;font-size:19px;padding:16px 20px;max-width:300px}
+  #ctrl{position:fixed;left:0;right:0;bottom:calc(24px + env(safe-area-inset-bottom));display:none;justify-content:center;align-items:center;gap:22px;z-index:3}
+  #fire{width:92px;height:92px;border-radius:50%;font:bold 20px "Courier New",monospace;color:#fff;background:#c0182b;border:5px solid #fff;box-shadow:0 6px 0 #000}
+  #fire:active{transform:translateY(4px);box-shadow:0 2px 0 #000}
+  #step{width:74px;height:58px;font:bold 15px "Courier New",monospace;color:#000;background:#ffe14d;border:4px solid #fff;box-shadow:0 5px 0 #000}
+  #step:active{transform:translateY(3px);box-shadow:0 2px 0 #000}
+  .hide{display:none!important}
+</style>
+</head>
+<body>
+<video id="bg" playsinline muted autoplay></video>
+<canvas id="c"></canvas>
+<div id="sat"></div>
+<div id="ctrl"><span style="width:74px"></span><button id="fire">FIRE</button><button id="step">STEP ▲</button></div>
+<div class="scr" id="start">
+  <h1>MOSQUITO<br>HUNTER</h1>
+  <p>The room is the game. Turn your body, walk towards them, aim the crosshair and FIRE!</p>
+  <button class="pbtn" id="startBtn">START</button>
+  <p class="st" id="status"></p>
+  <a class="pbtn alt hide" id="safari" href="https://halezaee.github.io/mosquito-hunter/" target="_blank" rel="noopener">OPEN FULL SCREEN IN SAFARI</a>
+  <p class="nt hide" id="note">Camera and gyro need the game opened directly in Safari</p>
+</div>
+<div class="scr hide" id="over">
+  <h1>GAME OVER</h1>
+  <p id="final">SCORE 0</p>
+  <button class="pbtn" id="againBtn">PLAY AGAIN</button>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const cv=$("c"),ctx=cv.getContext("2d"),video=$("bg");
+const FULL_URL="https://halezaee.github.io/mosquito-hunter/";
+let W=0,H=0,dpr=1,F=300,TOP=30;
+const D=Math.PI/180,wrap=a=>((a%360)+540)%360-180,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function resize(){dpr=Math.min(2,window.devicePixelRatio||1);W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.imageSmoothingEnabled=false;
+  F=(Math.max(W,H)/2)/Math.tan(32*D);TOP=($("sat").offsetHeight||0)+30}
+addEventListener("resize",resize);resize();
+
+let inFrame=false;try{inFrame=window.self!==window.top}catch(e){inFrame=true}
+function showSafari(){$("safari").classList.remove("hide");$("note").classList.remove("hide")}
+if(inFrame)showSafari();
+$("safari").addEventListener("click",e=>{const w=window.open(FULL_URL,"_blank","noopener");if(w)e.preventDefault()});
+
+// ---- orientation: rotation matrix from alpha/beta/gamma (Z-X'-Y''), back camera looks along device -Z
+let rawYaw=0,rawPitch=0,yaw0=null,yaw=0,pitch=0,gotOri=false,relOK=false,dragMode=false;
+let camOK=false,camState="",gyroState="";
+function onOri(e,abs){
+  if(e.alpha==null||e.beta==null)return;
+  if(abs&&relOK)return; if(!abs)relOK=true;
+  gotOri=true;dragMode=false;
+  const a=e.alpha*D,b=e.beta*D,g=(e.gamma||0)*D;
+  const cA=Math.cos(a),sA=Math.sin(a),cB=Math.cos(b),sB=Math.sin(b),cG=Math.cos(g),sG=Math.sin(g);
+  const lx=-cA*sG-sA*sB*cG,ly=-sA*sG+cA*sB*cG,lz=-cB*cG;
+  rawPitch=Math.asin(clamp(lz,-1,1))/D;
+  if(Math.hypot(lx,ly)>0.1)rawYaw=Math.atan2(lx,ly)/D; // hold yaw when looking straight up/down
+  if(yaw0===null){yaw0=rawYaw;yaw=0;pitch=rawPitch}
+}
+addEventListener("deviceorientation",e=>onOri(e,false));
+addEventListener("deviceorientationabsolute",e=>onOri(e,true));
+
+// ---- step detection
+let accHigh=false,lastStep=0,steps=0;
+addEventListener("devicemotion",e=>{
+  const g=e.accelerationIncludingGravity;if(!g||g.x==null||!running)return;
+  const m=Math.hypot(g.x,g.y||0,g.z||0),now=performance.now();
+  if(m>11.5&&!accHigh){accHigh=true;if(now-lastStep>350){lastStep=now;step()}}
+  else if(m<10.5)accHigh=false;
+});
+
+// ---- drag: last resort only when no orientation data
+let drag=null;
+cv.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY}});
+addEventListener("pointermove",e=>{
+  if(!drag||!dragMode||!running)return;
+  const k=60/W;yaw=wrap(yaw-(e.clientX-drag.x)*k);pitch=clamp(pitch+(e.clientY-drag.y)*k,-80,80);
+  drag={x:e.clientX,y:e.clientY};
+});
+addEventListener("pointerup",()=>drag=null);
+document.addEventListener("gesturestart",e=>e.preventDefault());
+document.addEventListener("touchmove",e=>{if(running)e.preventDefault()},{passive:false});
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&camOK)video.play().catch(()=>{})});
+
+// ---- game state
+let mosq=[],parts=[],score=0,level=1,timeLeft=60,running=false,last=0,flash=0,msg="",msgT=0;
+function spawn(){
+  mosq=[];const n=6+(level-1)*2,sp=1+(level-1)*0.5;
+  for(let i=0;i<n;i++)mosq.push({yaw:i===0?(Math.random()*40-20):Math.random()*360-180,pitch:-15+Math.random()*45,
+    dist:1.8+Math.random()*2.7,vy:0,vp:0,sp,ph:Math.random()*10});
+}
+// world direction -> camera space -> screen
+function project(m){
+  const cp=Math.cos(m.pitch*D),vx=cp*Math.sin(m.yaw*D),vy=cp*Math.cos(m.yaw*D),vz=Math.sin(m.pitch*D);
+  const cy=Math.cos(yaw*D),sy=Math.sin(yaw*D),x=vx*cy-vy*sy,y=vx*sy+vy*cy;
+  const cpp=Math.cos(pitch*D),spp=Math.sin(pitch*D),f=y*cpp+vz*spp,u=-y*spp+vz*cpp;
+  const p=Math.max(2,Math.round(7/m.dist));
+  if(f<0.05)return{on:false,vis:false,x,u,p};
+  const sx=W/2+F*x/f,sy2=H/2-F*u/f;
+  return{on:true,vis:sx>-10&&sx<W+10&&sy2>-10&&sy2<H+10,x,u,p,sx,sy:sy2};
+}
+const BODY=["................","..............k.",".....kwkwkwk.kk.","P...kkwkwkwkkkkk",".PPkwkwkwkwkkkkk",".....kwkwkwk.kk.","..............k."];
+const LEGS=[[5,6],[4,7],[3,8],[7,6],[7,7],[7,8],[9,6],[10,7],[11,8]];
+function drawMosq(x,y,p,t){
+  const ox=x-8*p,oy=y-4*p,fr=Math.floor(t*30)%3;
+  ctx.fillStyle="rgba(220,240,255,.85)";
+  const wy=[-4,-2,0][fr],wh=[3,2,1][fr];
+  for(let i=0;i<wh;i++){ctx.fillRect(ox+(6-i)*p,oy+(2+wy+i)*p,5*p,p);ctx.fillRect(ox+(8+i)*p,oy+(2+wy+i-1)*p,4*p,p)}
+  for(let r=0;r<BODY.length;r++)for(let c=0;c<16;c++){const ch=BODY[r][c];if(ch===".")continue;
+    ctx.fillStyle=ch==="k"?"#111":ch==="w"?"#f4f4f4":"#552222";ctx.fillRect(ox+c*p,oy+r*p,p,p)}
+  ctx.fillStyle="#111";for(const[c,r]of LEGS)ctx.fillRect(ox+c*p,oy+r*p,p,p);
+  ctx.fillRect(ox+3*p,oy+9*p,p,p);ctx.fillRect(ox+12*p,oy+9*p,p,p);
+  ctx.fillStyle="#e33";ctx.fillRect(ox+14*p,oy+3*p,p,p);
+}
+function splat(x,y,p){
+  for(let i=0;i<40;i++){const a=Math.random()*6.28,s=40+Math.random()*200;
+    parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,l:0.6+Math.random()*0.4,sz:p*(1+Math.floor(Math.random()*2))})}
+  msg="SPLAT!";msgT=0.8;
+}
+function fire(){
+  if(!running)return;flash=0.08;let best=null,bd=1e9,bs=null;
+  for(const m of mosq){const s=project(m);if(!s.vis)continue;const d=Math.hypot(s.sx-W/2,s.sy-H/2);
+    if(d<9*s.p+14&&d<bd){bd=d;best=m;bs=s}}
+  if(best){splat(bs.sx,bs.sy,bs.p);mosq.splice(mosq.indexOf(best),1);score+=10;if(navigator.vibrate)navigator.vibrate(40);
+    if(!mosq.length){level++;timeLeft=60;spawn();msg="LEVEL "+level;msgT=1.5}}
+}
+function step(){
+  if(!running)return;steps++;
+  for(const m of mosq)if(Math.abs(wrap(m.yaw-yaw))<=30)m.dist=Math.max(0.8,m.dist-0.4);
+  if(msgT<=0||msg==="STEP"){msg="STEP";msgT=0.4}
+}
+$("fire").addEventListener("pointerdown",e=>{e.preventDefault();fire()});
+$("step").addEventListener("pointerdown",e=>{e.preventDefault();step()});
+
+function pixText(t,x,y,size,col,align){
+  ctx.font="bold "+size+"px 'Courier New',monospace";ctx.textAlign=align||"center";ctx.textBaseline="middle";
+  ctx.fillStyle="#000";ctx.fillText(t,x+3,y+3);ctx.fillStyle=col;ctx.fillText(t,x,y);
+}
+// only used when there is no camera at all
+function drawFallbackBG(){
+  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,"#050a2a");g.addColorStop(1,"#14246a");ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  ctx.fillStyle="#cfe";
+  for(let i=0;i<120;i++){const s=project({yaw:(i*137.5)%360-180,pitch:((i*53)%90)-20,dist:7});
+    if(s.vis)ctx.fillRect(s.sx|0,s.sy|0,i%3?2:3,i%3?2:3)}
+}
+function drawRadar(){
+  const R=44,cx=W-R-14,cy=TOP+30+R,hf=Math.atan((W/2)/F);
+  ctx.fillStyle="rgba(0,20,0,.55)";ctx.beginPath();ctx.arc(cx,cy,R,0,6.283);ctx.fill();
+  ctx.strokeStyle="#7f7";ctx.lineWidth=2;ctx.stroke();
+  ctx.fillStyle="rgba(120,255,120,.18)";ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,R,-Math.PI/2-hf,-Math.PI/2+hf);ctx.closePath();ctx.fill();
+  ctx.fillStyle="#7f7";ctx.fillRect(cx-2,cy-2,4,4);
+  for(const m of mosq){const a=wrap(m.yaw-yaw)*D,r=R*clamp(m.dist/4.6,0.15,0.95);
+    ctx.fillStyle="#ff3040";ctx.fillRect(Math.round(cx+Math.sin(a)*r)-2,Math.round(cy-Math.cos(a)*r)-2,5,5)}
+}
+function drawArrow(s){
+  let dx=s.x,dy=-s.u;if(Math.hypot(dx,dy)<1e-3){dx=1;dy=0}
+  const ang=Math.atan2(dy,dx),m=26,x0=m,x1=W-m,y0=TOP+40,y1=H-150,cx=W/2,cy=H/2;
+  const c=Math.cos(ang),sn=Math.sin(ang);
+  const t=Math.min(c>0?(x1-cx)/c:c<0?(x0-cx)/c:1e9,sn>0?(y1-cy)/sn:sn<0?(y0-cy)/sn:1e9);
+  ctx.save();ctx.translate(cx+c*t,cy+sn*t);ctx.rotate(ang);ctx.fillStyle="#ffe14d";ctx.strokeStyle="#000";ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(14,0);ctx.lineTo(-8,-11);ctx.lineTo(-3,0);ctx.lineTo(-8,11);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();
+}
+function loop(now){
+  const dt=Math.min(0.05,(now-last)/1000||0);last=now;const t=now/1000;
+  if(gotOri&&!dragMode&&yaw0!==null){const k=1-Math.exp(-dt*14);
+    yaw=wrap(yaw+wrap(wrap(rawYaw-yaw0)-yaw)*k);pitch+=(rawPitch-pitch)*k}
+  if(running){
+    timeLeft-=dt;if(timeLeft<=0){timeLeft=0;gameOver()}
+    for(const m of mosq){
+      m.vy+=(Math.random()-0.5)*40*dt*m.sp;m.vp+=(Math.random()-0.5)*30*dt*m.sp;m.vy*=0.97;m.vp*=0.97;
+      m.yaw=wrap(m.yaw+m.vy*dt);m.pitch+=m.vp*dt;
+      if(m.pitch>35){m.pitch=35;m.vp=-Math.abs(m.vp)}if(m.pitch<-20){m.pitch=-20;m.vp=Math.abs(m.vp)}
+    }
+  }
+  ctx.clearRect(0,0,W,H);
+  if(!camOK&&running)drawFallbackBG();
+  const proj=mosq.map(m=>({m,s:project(m)})).sort((a,b)=>b.m.dist-a.m.dist);
+  for(const{m,s}of proj)if(s.vis)drawMosq(Math.round(s.sx+Math.sin(t*7+m.ph)*s.p*2),Math.round(s.sy+Math.cos(t*9+m.ph)*s.p),s.p,t+m.ph);
+  for(let i=parts.length-1;i>=0;i--){const q=parts[i];q.l-=dt;if(q.l<=0){parts.splice(i,1);continue}
+    q.x+=q.vx*dt;q.y+=q.vy*dt;q.vx*=0.9;q.vy=q.vy*0.9+300*dt;
+    ctx.fillStyle=q.l>0.3?"#e01020":"#801018";ctx.fillRect(q.x|0,q.y|0,q.sz,q.sz)}
+  if(running){
+    for(const{s}of proj)if(!s.vis)drawArrow(s);
+    const cx=W/2|0,cy=H/2|0;ctx.fillStyle=flash>0?"#ff3":"#fff";
+    ctx.fillRect(cx-18,cy-2,12,4);ctx.fillRect(cx+6,cy-2,12,4);ctx.fillRect(cx-2,cy-18,4,12);ctx.fillRect(cx-2,cy+6,4,12);
+    ctx.fillStyle="#e01020";ctx.fillRect(cx-2,cy-2,4,4);
+    if(flash>0){flash-=dt;ctx.fillStyle="rgba(255,255,200,.15)";ctx.fillRect(0,0,W,H)}
+    pixText("SCORE "+score,16,TOP,20,"#fff","left");
+    pixText("LV "+level,W/2,TOP,20,"#ffe14d");
+    pixText(Math.ceil(timeLeft)+"s",W-16,TOP,20,timeLeft<10?"#ff4040":"#fff","right");
+    pixText("LEFT "+mosq.length,W/2,TOP+28,14,"#cfe");
+    if(dragMode)pixText("NO GYRO: DRAG TO LOOK",W/2,H-150,13,"#ffe14d");
+    drawRadar();
+    if(msgT>0){msgT-=dt;pixText(msg,W/2,H/2-70,msg==="STEP"?24:36,msg==="SPLAT!"?"#ff2030":"#ffe14d")}
+  }
+  requestAnimationFrame(loop);
+}
+function gameOver(){running=false;$("ctrl").style.display="none";
+  $("final").textContent="SCORE "+score+" · LEVEL "+level;$("over").classList.remove("hide")}
+function newGame(){score=0;level=1;timeLeft=60;parts=[];steps=0;
+  if(gotOri&&!dragMode){yaw0=rawYaw;pitch=rawPitch}else yaw0=null;yaw=0;
+  spawn();running=true;msg="HUNT!";msgT=1.2;$("ctrl").style.display="flex"}
+function beginGame(){$("start").classList.add("hide");newGame()}
+
+let started=false,ready=false;
+function setStatus(){$("status").textContent="Camera: "+(camState||"…")+" — Gyro: "+(gyroState||"…")}
+$("startBtn").addEventListener("click",()=>{
+  if(ready){beginGame();return}
+  if(started)return;started=true;$("startBtn").textContent="STARTING…";
+  // 1) sensor permissions first, synchronously inside the tap (iOS keeps the gesture)
+  let pO=null,pM=null;
+  try{if(typeof DeviceOrientationEvent!=="undefined"&&typeof DeviceOrientationEvent.requestPermission==="function")pO=DeviceOrientationEvent.requestPermission()}catch(e){pO=Promise.resolve("denied")}
+  try{if(typeof DeviceMotionEvent!=="undefined"&&typeof DeviceMotionEvent.requestPermission==="function")pM=DeviceMotionEvent.requestPermission()}catch(e){}
+  // 2) camera, still in the same tap
+  let pC=null;
+  try{if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)
+    pC=navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:720}},audio:false})}catch(e){pC=Promise.reject(e)}
+  yaw0=null;setStatus();
+  (async()=>{
+    let gp="granted";
+    if(pO){try{gp=await pO}catch(e){gp="denied"}}
+    if(pM){try{await pM}catch(e){}}
+    if(!pC)camState="unsupported";
+    else{try{const s=await pC;video.srcObject=s;video.setAttribute("playsinline","");video.muted=true;video.style.display="block";
+        await video.play().catch(()=>{});camOK=true;camState="on"}
+      catch(e){camState=e&&(e.name==="NotFoundError"||e.name==="OverconstrainedError")?"unsupported":"blocked"}}
+    setStatus();
+    if(gp!=="granted")gyroState="blocked";
+    else if(typeof DeviceOrientationEvent==="undefined")gyroState="no data";
+    else{const t0=performance.now();while(!gotOri&&performance.now()-t0<1500)await new Promise(r=>setTimeout(r,50));gyroState=gotOri?"on":"no data"}
+    if(gyroState!=="on")dragMode=true;
+    setStatus();
+    if(camState!=="on"||gyroState!=="on"){showSafari();ready=true;$("startBtn").textContent="PLAY ANYWAY"}
+    else{ready=true;$("startBtn").textContent="GO!";setTimeout(()=>{if(!running&&!$("start").classList.contains("hide"))beginGame()},700)}
+  })();
+});
+$("againBtn").addEventListener("click",()=>{$("over").classList.add("hide");if(camOK)video.play().catch(()=>{});newGame()});
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
