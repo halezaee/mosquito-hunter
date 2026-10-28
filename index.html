@@ -32,7 +32,7 @@
 <video id="bg" playsinline muted autoplay></video>
 <canvas id="c"></canvas>
 <div id="sat"></div><div id="sab"></div><label id="hap"><input type="checkbox" switch id="hapIn"></label>
-<div id="ctrl"><span style="width:74px"></span><button id="fire">FIRE</button><button id="step">STEP ▲</button></div>
+<div id="ctrl"><button id="fire">FIRE</button></div>
 <div class="scr" id="start">
   <h1>MOSQUITO<br>HUNTER</h1>
   <p>The room is the game. Turn your body, walk towards them, aim the crosshair and FIRE!</p>
@@ -56,7 +56,7 @@ function haptic(){try{if(navigator.vibrate&&navigator.vibrate(40))return}catch(e
 const D=Math.PI/180,wrap=a=>((a%360)+540)%360-180,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function resize(){dpr=Math.min(2,window.devicePixelRatio||1);W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;
   ctx.setTransform(dpr,0,0,dpr,0,0);ctx.imageSmoothingEnabled=false;
-  F=(Math.max(W,H)/2)/Math.tan(32*D);TOP=($("sat").offsetHeight||0)+30;BOT=$("sab").offsetHeight||0;BARY=H-BOT-24-100-52}
+  F=(Math.max(W,H)/2)/Math.tan(32*D);TOP=($("sat").offsetHeight||0)+30;BOT=$("sab").offsetHeight||0;BARY=($("sat").offsetHeight||0)+8}
 addEventListener("resize",resize);resize();
 
 let inFrame=false;try{inFrame=window.self!==window.top}catch(e){inFrame=true}
@@ -172,7 +172,6 @@ function step(){
   if(msgT<=0||msg==="STEP"){msg="STEP";msgT=0.4}
 }
 $("fire").addEventListener("pointerdown",e=>{e.preventDefault();fire()});
-$("step").addEventListener("pointerdown",e=>{e.preventDefault();step()});
 
 function pixText(t,x,y,size,col,align){
   ctx.font="bold "+size+"px 'Courier New',monospace";ctx.textAlign=align||"center";ctx.textBaseline="middle";
@@ -186,7 +185,7 @@ function drawFallbackBG(){
     if(s.vis)ctx.fillRect(s.sx|0,s.sy|0,i%3?2:3,i%3?2:3)}
 }
 function drawRadar(){
-  const R=44,cx=W-R-14,cy=TOP+R,hf=Math.atan((W/2)/F);
+  const R=44,cx=W-R-14,cy=BARY+48+16+R,hf=Math.atan((W/2)/F);
   ctx.fillStyle="rgba(0,20,0,.55)";ctx.beginPath();ctx.arc(cx,cy,R,0,6.283);ctx.fill();
   ctx.strokeStyle="#7f7";ctx.lineWidth=2;ctx.stroke();
   ctx.fillStyle="rgba(120,255,120,.18)";ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,R,-Math.PI/2-hf,-Math.PI/2+hf);ctx.closePath();ctx.fill();
@@ -196,7 +195,7 @@ function drawRadar(){
   for(const m of dang){const a=wrap(m.yaw-yaw)*D,r=R*clamp(m.dist/4.6,0.1,0.95),x=Math.round(cx+Math.sin(a)*r),y=Math.round(cy-Math.cos(a)*r);
     ctx.fillStyle=(performance.now()/150|0)%2?"#fff":"#000";ctx.fillRect(x-5,y-5,10,10);ctx.fillStyle="#ff1020";ctx.fillRect(x-4,y-4,8,8)}
 }
-// bottom info bar: one long pixel box, a different colour for each info
+// top info bar: one long pixel box, a different colour for each info
 function drawHUD(t){
   const m=8,x0=m,w=W-2*m,h=48,y=BARY|0;
   const dl=dang.length?Math.ceil(Math.max(0,killTime()-dang[0].age)):0,blink=(t*4|0)%2;
@@ -212,7 +211,7 @@ function drawHUD(t){
 }
 function drawArrow(s,dg){
   let dx=s.x,dy=-s.u;if(Math.hypot(dx,dy)<1e-3){dx=1;dy=0}
-  const ang=Math.atan2(dy,dx),m=26,x0=m,x1=W-m,y0=TOP+40,y1=BARY-24,cx=W/2,cy=H/2;
+  const ang=Math.atan2(dy,dx),m=26,x0=m,x1=W-m,y0=BARY+48+30,y1=H-150,cx=W/2,cy=H/2;
   const c=Math.cos(ang),sn=Math.sin(ang);
   const t=Math.min(c>0?(x1-cx)/c:c<0?(x0-cx)/c:1e9,sn>0?(y1-cy)/sn:sn<0?(y0-cy)/sn:1e9);
   ctx.save();ctx.translate(cx+c*t,cy+sn*t);ctx.rotate(ang);if(dg)ctx.scale(1.4,1.4);ctx.fillStyle=dg?"#ff2030":"#ffe14d";ctx.strokeStyle="#000";ctx.lineWidth=2;
@@ -259,7 +258,7 @@ function loop(now){
     ctx.fillStyle="#e01020";ctx.fillRect(cx-2,cy-2,4,4);
     if(flash>0){flash-=dt;ctx.fillStyle="rgba(255,255,200,.15)";ctx.fillRect(0,0,W,H)}
     drawHUD(t);
-    if(dragMode)pixText("NO GYRO: DRAG TO LOOK",W/2,BARY-16,13,"#ffe14d");
+    if(dragMode)pixText("NO GYRO: DRAG TO LOOK",W/2,H-150,13,"#ffe14d");
     drawRadar();
     if(msgT>0){msgT-=dt;pixText(msg,W/2,H/2-70,msg==="STEP"?24:36,msg==="SPLAT!"||msg==="DANGER!"?"#ff2030":"#ffe14d")}
   }
