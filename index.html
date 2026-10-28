@@ -104,7 +104,7 @@ let mosq=[],parts=[],score=0,level=1,timeLeft=60,running=false,last=0,flash=0,ms
 // dangerous mosquitoes: 3 per level, one at a time
 let dang=[],dSp=0,dKill=0,dNext=0,dRush=false,floats=[],bitT=0;
 const killTime=()=>Math.max(3,11-level),D0=4,dEnd=()=>9/(0.46*W/16);
-function spawnDanger(){dSp++;dang.push({dg:1,yaw:wrap(yaw+Math.random()*360),pitch:-10+Math.random()*35,dist:D0,age:0,ph:Math.random()*10});
+function spawnDanger(){dSp++;{const y0=wrap(yaw+Math.random()*360),p0=-10+Math.random()*35;dang.push({dg:1,yaw:y0,pitch:p0,bY:y0,bP:p0,ox:0,oy:0,zd:Math.random()<0.5?1:-1,zv:(Math.random()-0.5)*1.2,zt:0.2+Math.random()*1.0,dist:D0,age:0,ph:Math.random()*10})}
   if(navigator.vibrate)navigator.vibrate(120);msg="DANGER!";msgT=1}
 function checkClear(){
   if(!mosq.length&&dKill>=3){level++;timeLeft=60;spawn();msg="LEVEL "+level;msgT=1.5}
@@ -214,8 +214,14 @@ function loop(now){
     if(dSp<3&&!dang.length){dNext-=dt;if(dNext<=0)spawnDanger()}
     const kt=killTime(),de=dEnd();
     for(const m of dang){m.age+=dt;m.dist=D0+(de-D0)*Math.min(1,m.age/kt);
-      const dy=wrap(yaw-m.yaw),dp=pitch-m.pitch,r=12*dt;
-      m.yaw=wrap(m.yaw+clamp(dy,-r,r));m.pitch+=clamp(dp,-r,r);
+      const dy=wrap(yaw-m.bY),dp=pitch-m.bP,r=12*dt;
+      m.bY=wrap(m.bY+clamp(dy,-r,r));m.bP+=clamp(dp,-r,r);
+      // zigzag: each leg lasts a random 0.2-1.2 s, then flips direction
+      m.zt-=dt;if(m.zt<=0){m.zd=-m.zd;m.zt=0.2+Math.random()*1.0;m.zv=(Math.random()-0.5)*1.2}
+      const zs=45+level*4;m.ox+=m.zd*zs*dt;m.oy+=m.zv*zs*dt;
+      if(m.ox>30){m.ox=30;m.zd=-1;m.zt=0.2+Math.random()*1.0}if(m.ox<-30){m.ox=-30;m.zd=1;m.zt=0.2+Math.random()*1.0}
+      if(Math.abs(m.oy)>14){m.oy=clamp(m.oy,-14,14);m.zv=-m.zv}
+      m.yaw=wrap(m.bY+m.ox);m.pitch=m.bP+m.oy;
       if(16*9/m.dist>0.45*W||m.age>=kt){bitten();break}}
   }
   ctx.clearRect(0,0,W,H);
